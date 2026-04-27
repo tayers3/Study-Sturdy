@@ -16,20 +16,23 @@ import { User, LogOut, Plus } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface DashboardNavProps {
-  user: SupabaseUser;
+  user: SupabaseUser | null;
 }
 
 export function DashboardNav({ user }: DashboardNavProps) {
   const router = useRouter();
 
   async function handleSignOut() {
+    if (!user) return;
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
     router.refresh();
   }
 
-  const displayName = user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
+  const displayName = user?.is_anonymous
+    ? "Guest"
+    : user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Guest";
 
   return (
     <header className="border-b border-border/50 bg-background sticky top-0 z-50">
@@ -57,10 +60,10 @@ export function DashboardNav({ user }: DashboardNavProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled className="text-muted-foreground">
-                {user.email}
+                {user?.email || "Anonymous session"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive" disabled={!user}>
                 <LogOut className="w-4 h-4 mr-2" />
                 Sign out
               </DropdownMenuItem>

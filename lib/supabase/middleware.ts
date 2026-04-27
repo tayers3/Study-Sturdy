@@ -42,19 +42,15 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protect dashboard routes
-  if (
-    !user &&
-    request.nextUrl.pathname.startsWith("/dashboard")
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
+  // Automatically create an anonymous session so sign-in is optional.
+  if (!user) {
+    await supabase.auth.signInAnonymously();
   }
 
-  // Redirect authenticated users away from auth pages
+  // Redirect signed-in non-anonymous users away from auth pages
   if (
     user &&
+    !user.is_anonymous &&
     (request.nextUrl.pathname.startsWith("/auth/login") ||
       request.nextUrl.pathname.startsWith("/auth/sign-up"))
   ) {

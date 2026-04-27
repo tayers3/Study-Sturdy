@@ -16,31 +16,37 @@ export default function StartPage() {
     let cancelled = false;
 
     async function continueAsGuest() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (user) {
+        if (user) {
+          if (!cancelled) {
+            router.replace("/dashboard");
+            router.refresh();
+          }
+          return;
+        }
+
+        const { error: signInError } = await supabase.auth.signInAnonymously();
+
+        if (signInError) {
+          if (!cancelled) {
+            setError(signInError.message);
+          }
+          return;
+        }
+
         if (!cancelled) {
           router.replace("/dashboard");
           router.refresh();
         }
-        return;
-      }
-
-      const { error: signInError } = await supabase.auth.signInAnonymously();
-
-      if (signInError) {
+      } catch {
         if (!cancelled) {
-          setError(signInError.message);
+          setError("Guest mode needs Supabase environment variables. Please sign in instead.");
         }
-        return;
-      }
-
-      if (!cancelled) {
-        router.replace("/dashboard");
-        router.refresh();
       }
     }
 

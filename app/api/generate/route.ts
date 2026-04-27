@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await generateText({
-      model: "openai/gpt-4o-mini",
+      model: openai("gpt-4o-mini"),
       output: Output.object({
         schema: schemas[type],
       }),

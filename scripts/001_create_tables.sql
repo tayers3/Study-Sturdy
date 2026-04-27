@@ -95,6 +95,21 @@ CREATE POLICY "materials_select_own" ON public.generated_materials FOR SELECT US
 CREATE POLICY "materials_insert_own" ON public.generated_materials FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "materials_delete_own" ON public.generated_materials FOR DELETE USING (auth.uid() = user_id);
 
+-- AI Chat History table
+CREATE TABLE IF NOT EXISTS public.ai_chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  response JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.ai_chat_messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "ai_chat_messages_select_own" ON public.ai_chat_messages FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "ai_chat_messages_insert_own" ON public.ai_chat_messages FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "ai_chat_messages_delete_own" ON public.ai_chat_messages FOR DELETE USING (auth.uid() = user_id);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_study_sessions_user_id ON public.study_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_notes_session_id ON public.notes(session_id);
@@ -102,3 +117,5 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_id ON public.notes(user_id);
 CREATE INDEX IF NOT EXISTS idx_generated_materials_session_id ON public.generated_materials(session_id);
 CREATE INDEX IF NOT EXISTS idx_generated_materials_user_id ON public.generated_materials(user_id);
 CREATE INDEX IF NOT EXISTS idx_generated_materials_type ON public.generated_materials(type);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_user_id ON public.ai_chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_created_at ON public.ai_chat_messages(created_at DESC);
