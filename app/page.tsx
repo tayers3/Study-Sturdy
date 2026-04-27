@@ -5,6 +5,7 @@ import { BrandLockup } from "@/components/brand-lockup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -19,6 +20,12 @@ import { content, type LearningStyle } from "@/lib/study-content";
 
 type UserMode = "guest" | "logged-in";
 type PracticeStatus = "correct" | "incorrect" | null;
+type PracticeSource = "built-in" | "gemini" | "custom";
+
+type CustomPracticeQuestion = {
+  prompt: string;
+  answer: string;
+};
 
 type StepPhotoNote = {
   id: string;
@@ -37,8 +44,11 @@ type SavedNote = {
   subject: string;
   topic: string;
   content: string;
+  links?: string[];
   createdAt: number;
 };
+
+type CustomSubjectsMap = Record<string, string[]>;
 
 const learningStyleOptions: Array<{ key: LearningStyle; label: string; description: string }> = [
   {
@@ -65,6 +75,7 @@ const learningStyleOptions: Array<{ key: LearningStyle; label: string; descripti
 
 const STYLE_STORAGE_KEY = "study-sturdy-learning-style";
 const MY_NOTES_STORAGE_KEY = "study-sturdy-my-notes";
+const CUSTOM_SUBJECTS_STORAGE_KEY = "study-sturdy-custom-subjects";
 const STEP_BY_STEP_EXCLUDED_TOPICS = new Set(["Solving Linear Equations"]);
 
 function normalizeAnswer(value: string) {
@@ -81,19 +92,54 @@ function formatSavedDate(timestamp: number) {
   });
 }
 
+function getTopicsForSubject(
+  subject: string,
+  style: LearningStyle | null,
+  customSubjects: CustomSubjectsMap
+) {
+  const staticTopics = subject in content ? Object.keys(content[subject]) : [];
+  const customTopics = customSubjects[subject] ?? [];
+  const merged = Array.from(new Set([...staticTopics, ...customTopics]));
+
+  if (style !== "step-by-step") {
+    return merged;
+  }
+
+  return merged.filter((topic) => !STEP_BY_STEP_EXCLUDED_TOPICS.has(topic));
+}
+
 export default function HomePage() {
   const [userMode, setUserMode] = useState<UserMode>("guest");
   const [selectedStyle, setSelectedStyle] = useState<LearningStyle | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [selectedTopicSubject, setSelectedTopicSubject] = useState<string | null>(null);
   const [practiceAnswers, setPracticeAnswers] = useState<Record<number, string>>({});
   const [practiceResults, setPracticeResults] = useState<Record<number, PracticeStatus>>({});
+  const [practiceSource, setPracticeSource] = useState<PracticeSource>("built-in");
+  const [geminiPracticePrompt, setGeminiPracticePrompt] = useState("");
+  const [geminiPracticeError, setGeminiPracticeError] = useState<string | null>(null);
+  const [customPracticeQuestions, setCustomPracticeQuestions] = useState<CustomPracticeQuestion[]>([
+    { prompt: "", answer: "" },
+  ]);
   const [visualQuery, setVisualQuery] = useState("");
   const [visualError, setVisualError] = useState<string | null>(null);
+  const [lastVisualSearchUrl, setLastVisualSearchUrl] = useState<string | null>(null);
   const [summaryQuery, setSummaryQuery] = useState("");
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [stepPhotoNotes, setStepPhotoNotes] = useState<StepPhotoNote[]>([]);
   const [myNotes, setMyNotes] = useState<SavedNote[]>([]);
+  const [customSubjects, setCustomSubjects] = useState<CustomSubjectsMap>({});
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [newTopicName, setNewTopicName] = useState("");
+  const [styleNoteDraft, setStyleNoteDraft] = useState("");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteEditTitle, setNoteEditTitle] = useState("");
+  const [noteEditContent, setNoteEditContent] = useState("");
+  const [manualNoteTitle, setManualNoteTitle] = useState("");
+  const [manualNoteContent, setManualNoteContent] = useState("");
 
   useEffect(() => {
     const savedStyle = window.localStorage.getItem(STYLE_STORAGE_KEY);
@@ -133,48 +179,52 @@ export default function HomePage() {
   }, [myNotes]);
 
   useEffect(() => {
+    const savedCustomSubjects = window.localStorage.getItem(CUSTOM_SUBJECTS_STORAGE_KEY);
+    if (!savedCustomSubjects) {
+      return;
+    }
+
+    try {
+      setCustomSubjects(JSON.parse(savedCustomSubjects) as CustomSubjectsMap);
+    } catch {
+      setCustomSubjects({});
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(CUSTOM_SUBJECTS_STORAGE_KEY, JSON.stringify(customSubjects));
+  }, [customSubjects]);
+
+  useEffect(() => {
     return () => {
       stepPhotoNotes.forEach((item) => URL.revokeObjectURL(item.src));
     };
   }, [stepPhotoNotes]);
 
-  const subjects = useMemo(() => Object.keys(content), []);
-
-  useEffect(() => {
-    if (!selectedSubject && subjects.length > 0) {
-      setSelectedSubject(subjects[0]);
-    }
-  }, [selectedSubject, subjects]);
+  const subjects = useMemo(() => {
+    return Array.from(new Set([...Object.keys(content), ...Object.keys(customSubjects)]));
+  }, [customSubjects]);
 
   const topics = useMemo(() => {
     if (!selectedSubject) {
       return [] as string[];
     }
 
-    const subjectTopics = Object.keys(content[selectedSubject]);
-    if (selectedStyle !== "step-by-step") {
-      return subjectTopics;
-    }
-
-    return subjectTopics.filter((topic) => !STEP_BY_STEP_EXCLUDED_TOPICS.has(topic));
-  }, [selectedStyle, selectedSubject]);
-
-  useEffect(() => {
-    if (topics.length === 0) {
-      setSelectedTopic(null);
-      return;
-    }
-
-    if (!selectedTopic || !topics.includes(selectedTopic)) {
-      setSelectedTopic(topics[0]);
-    }
-  }, [selectedTopic, topics]);
+    return getTopicsForSubject(selectedSubject, selectedStyle, customSubjects);
+  }, [customSubjects, selectedStyle, selectedSubject]);
 
   useEffect(() => {
     setPracticeAnswers({});
     setPracticeResults({});
+    setPracticeSource("built-in");
+    setGeminiPracticePrompt("");
+    setGeminiPracticeError(null);
+    setCustomPracticeQuestions([{ prompt: "", answer: "" }]);
     setVisualError(null);
+    setLastVisualSearchUrl(null);
     setSummaryError(null);
+    setStyleNoteDraft("");
+    setSaveMessage(null);
     setStepPhotoNotes((prev) => {
       prev.forEach((item) => URL.revokeObjectURL(item.src));
       return [];
@@ -182,9 +232,33 @@ export default function HomePage() {
   }, [selectedStyle, selectedSubject, selectedTopic]);
 
   const activeLesson =
-    selectedStyle && selectedSubject && selectedTopic
-      ? content[selectedSubject]?.[selectedTopic]?.[selectedStyle]
+    selectedStyle && selectedTopicSubject && selectedTopic
+      ? content[selectedTopicSubject]?.[selectedTopic]?.[selectedStyle]
       : null;
+
+  const activePracticeQuestions = useMemo(() => {
+    if (selectedStyle !== "practice") {
+      return [] as Array<{ prompt: string; answer: string }>;
+    }
+
+    if (practiceSource === "custom") {
+      return customPracticeQuestions.filter((question) => question.prompt.trim() && question.answer.trim());
+    }
+
+    if (practiceSource === "built-in" && activeLesson && "questions" in activeLesson) {
+      return activeLesson.questions;
+    }
+
+    return [] as Array<{ prompt: string; answer: string }>;
+  }, [activeLesson, customPracticeQuestions, practiceSource, selectedStyle]);
+
+  const stepOptions = useMemo(() => {
+    if (activeLesson && "steps" in activeLesson) {
+      return activeLesson.steps;
+    }
+
+    return ["Step 1", "Step 2", "Step 3"];
+  }, [activeLesson]);
 
   const styleLabel = learningStyleOptions.find((option) => option.key === selectedStyle)?.label;
 
@@ -198,6 +272,42 @@ export default function HomePage() {
     }));
   }
 
+  function updateCustomPracticeQuestion(index: number, field: "prompt" | "answer", value: string) {
+    setCustomPracticeQuestions((prev) =>
+      prev.map((question, i) => (i === index ? { ...question, [field]: value } : question))
+    );
+  }
+
+  function addCustomPracticeQuestion() {
+    setCustomPracticeQuestions((prev) => prev.concat({ prompt: "", answer: "" }));
+  }
+
+  function removeCustomPracticeQuestion(index: number) {
+    setCustomPracticeQuestions((prev) => {
+      if (prev.length <= 1) {
+        return [{ prompt: "", answer: "" }];
+      }
+
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function openGeminiPracticeGenerator(event: React.FormEvent) {
+    event.preventDefault();
+
+    const fallbackPrompt = `Generate 8 practice problems with answers for ${selectedTopic ?? "this topic"} in ${selectedTopicSubject ?? selectedSubject ?? "this subject"}.`;
+    const prompt = geminiPracticePrompt.trim() || fallbackPrompt;
+
+    if (!prompt.trim()) {
+      setGeminiPracticeError("Please enter a prompt before opening Gemini.");
+      return;
+    }
+
+    setGeminiPracticeError(null);
+    const url = `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   function handleVisualSearch(event: React.FormEvent) {
     event.preventDefault();
 
@@ -209,6 +319,7 @@ export default function HomePage() {
 
     setVisualError(null);
     const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(trimmedQuery)}`;
+    setLastVisualSearchUrl(url);
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -261,57 +372,84 @@ export default function HomePage() {
   }
 
   function buildCurrentOutputContent() {
-    if (!selectedStyle || !selectedSubject || !selectedTopic || !activeLesson) {
+    if (!selectedStyle || !selectedTopic || !selectedTopicSubject) {
       return null;
     }
 
-    if (selectedStyle === "visual" && "keyPoints" in activeLesson) {
-      return [
+    let baseContent = "";
+
+    if (selectedStyle === "visual" && activeLesson && "keyPoints" in activeLesson) {
+      baseContent = [
         `Visual resource: ${activeLesson.visualAid}`,
+        lastVisualSearchUrl ? `Your searched video: ${lastVisualSearchUrl}` : null,
         "",
         ...activeLesson.keyPoints.map((point, index) => `${index + 1}. ${point}`),
-      ].join("\n");
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
 
-    if (selectedStyle === "step-by-step" && "steps" in activeLesson) {
+    if (selectedStyle === "step-by-step") {
       const stepNotes = stepPhotoNotes
         .map((item) => `Step ${item.linkedStep + 1}: ${item.fileName}${item.note ? ` - ${item.note}` : ""}`)
         .join("\n");
 
-      return [
-        ...activeLesson.steps.map((step, index) => `${index + 1}. ${step}`),
+      const stepsContent =
+        activeLesson && "steps" in activeLesson
+          ? activeLesson.steps.map((step, index) => `${index + 1}. ${step}`)
+          : ["1. Add your own steps in Learning-Style Notes.", "2. Attach media to each step."];
+
+      baseContent = [
+        ...stepsContent,
         "",
         "Media Notes:",
         stepNotes || "No media notes added yet.",
       ].join("\n");
     }
 
-    if (selectedStyle === "practice" && "questions" in activeLesson) {
-      return activeLesson.questions
+    if (selectedStyle === "practice") {
+      if (practiceSource === "gemini") {
+        const fallbackPrompt = `Generate 8 practice problems with answers for ${selectedTopic} in ${selectedTopicSubject}.`;
+        baseContent = `Practice Source: Gemini\nPrompt: ${geminiPracticePrompt.trim() || fallbackPrompt}`;
+      } else {
+        baseContent = activePracticeQuestions
         .map((question, index) => {
           const studentAnswer = practiceAnswers[index] ?? "";
           const outcome = practiceResults[index] ?? "not checked";
           return `${index + 1}. ${question.prompt}\nYour answer: ${studentAnswer || "(blank)"}\nExpected: ${question.answer}\nStatus: ${outcome}`;
         })
         .join("\n\n");
+      }
     }
 
-    if (selectedStyle === "summary" && "bulletPoints" in activeLesson) {
-      return [activeLesson.overview, "", ...activeLesson.bulletPoints.map((point, index) => `${index + 1}. ${point}`)].join(
+    if (selectedStyle === "summary" && activeLesson && "bulletPoints" in activeLesson) {
+      baseContent = [activeLesson.overview, "", ...activeLesson.bulletPoints.map((point, index) => `${index + 1}. ${point}`)].join(
         "\n"
       );
     }
 
-    return activeLesson.overview;
+    if (!baseContent && activeLesson) {
+      baseContent = activeLesson.overview;
+    }
+
+    const trimmedDraft = styleNoteDraft.trim();
+    if (trimmedDraft) {
+      baseContent = baseContent
+        ? `${baseContent}\n\nYour Learning-Style Notes:\n${trimmedDraft}`
+        : `Your Learning-Style Notes:\n${trimmedDraft}`;
+    }
+
+    return baseContent || null;
   }
 
   function saveCurrentOutputToMyNotes() {
-    if (!selectedStyle || !selectedSubject || !selectedTopic) {
+    if (!selectedStyle || !selectedTopic || !selectedTopicSubject) {
       return;
     }
 
     const outputContent = buildCurrentOutputContent();
     if (!outputContent) {
+      setSaveMessage("Add lesson content or write a learning-style note before saving.");
       return;
     }
 
@@ -319,17 +457,140 @@ export default function HomePage() {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: `${selectedTopic} (${learningStyleOptions.find((option) => option.key === selectedStyle)?.label})`,
       style: selectedStyle,
-      subject: selectedSubject,
+      subject: selectedTopicSubject,
       topic: selectedTopic,
       content: outputContent,
+      links:
+        selectedStyle === "visual"
+          ? [activeLesson && "visualAid" in activeLesson ? activeLesson.visualAid : null, lastVisualSearchUrl]
+              .filter((value): value is string => Boolean(value))
+          : undefined,
       createdAt: Date.now(),
     };
 
     setMyNotes((prev) => [note, ...prev]);
+    setSaveMessage("Saved to My Notes.");
   }
 
   function removeMyNote(noteId: string) {
     setMyNotes((prev) => prev.filter((note) => note.id !== noteId));
+    if (openNoteId === noteId) {
+      setOpenNoteId(null);
+    }
+    if (editingNoteId === noteId) {
+      setEditingNoteId(null);
+      setNoteEditTitle("");
+      setNoteEditContent("");
+    }
+  }
+
+  function startEditingNote(note: SavedNote) {
+    setEditingNoteId(note.id);
+    setOpenNoteId(note.id);
+    setNoteEditTitle(note.title);
+    setNoteEditContent(note.content);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setNoteEditTitle("");
+    setNoteEditContent("");
+  }
+
+  function saveEditedNote() {
+    if (!editingNoteId) {
+      return;
+    }
+
+    const trimmedTitle = noteEditTitle.trim();
+    const trimmedContent = noteEditContent.trim();
+    if (!trimmedTitle || !trimmedContent) {
+      return;
+    }
+
+    setMyNotes((prev) =>
+      prev.map((note) =>
+        note.id === editingNoteId
+          ? {
+              ...note,
+              title: trimmedTitle,
+              content: trimmedContent,
+            }
+          : note
+      )
+    );
+
+    cancelEditingNote();
+  }
+
+  function addManualNote() {
+    const trimmedTitle = manualNoteTitle.trim();
+    const trimmedContent = manualNoteContent.trim();
+    if (!trimmedTitle || !trimmedContent) {
+      return;
+    }
+
+    const fallbackStyle: LearningStyle = selectedStyle ?? "summary";
+
+    const note: SavedNote = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: trimmedTitle,
+      style: fallbackStyle,
+      subject: selectedTopicSubject ?? selectedSubject ?? "General",
+      topic: selectedTopic ?? "General",
+      content: trimmedContent,
+      createdAt: Date.now(),
+    };
+
+    setMyNotes((prev) => [note, ...prev]);
+    setManualNoteTitle("");
+    setManualNoteContent("");
+    setOpenNoteId(note.id);
+  }
+
+  function addSubject() {
+    const trimmed = newSubjectName.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const existingSubject = subjects.find((subject) => subject.toLowerCase() === trimmed.toLowerCase());
+    if (existingSubject) {
+      setSelectedSubject(existingSubject);
+      setNewSubjectName("");
+      return;
+    }
+
+    setCustomSubjects((prev) => ({
+      ...prev,
+      [trimmed]: [],
+    }));
+    setSelectedSubject(trimmed);
+    setNewSubjectName("");
+  }
+
+  function addTopic() {
+    if (!selectedSubject) {
+      return;
+    }
+
+    const trimmed = newTopicName.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const currentTopics = getTopicsForSubject(selectedSubject, null, customSubjects);
+    const existingTopic = currentTopics.find((topic) => topic.toLowerCase() === trimmed.toLowerCase());
+    if (existingTopic) {
+      setNewTopicName("");
+      return;
+    }
+
+    setCustomSubjects((prev) => ({
+      ...prev,
+      [selectedSubject]: [...(prev[selectedSubject] ?? []), trimmed],
+    }));
+    setNewTopicName("");
   }
 
   return (
@@ -398,12 +659,6 @@ export default function HomePage() {
                           className="justify-start"
                           onClick={() => {
                             setSelectedSubject(subject);
-                            const nextTopics = Object.keys(content[subject]);
-                            const filteredTopics =
-                              selectedStyle === "step-by-step"
-                                ? nextTopics.filter((topic) => !STEP_BY_STEP_EXCLUDED_TOPICS.has(topic))
-                                : nextTopics;
-                            setSelectedTopic(filteredTopics[0] ?? null);
                           }}
                         >
                           {subject}
@@ -419,7 +674,10 @@ export default function HomePage() {
                         <button
                           key={topic}
                           type="button"
-                          onClick={() => setSelectedTopic(topic)}
+                          onClick={() => {
+                            setSelectedTopic(topic);
+                            setSelectedTopicSubject(selectedSubject);
+                          }}
                           className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${
                             selectedTopic === topic
                               ? "bg-primary/10 text-foreground"
@@ -430,6 +688,40 @@ export default function HomePage() {
                           <ChevronRight className="h-4 w-4" />
                         </button>
                       ))}
+                      {topics.length === 0 && (
+                        <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                          No topics under this subject yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Add Your Own Subject</p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={newSubjectName}
+                        onChange={(event) => setNewSubjectName(event.target.value)}
+                        placeholder="e.g., Chemistry"
+                      />
+                      <Button type="button" variant="outline" onClick={addSubject}>
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Add Your Own Class / Topic</p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={newTopicName}
+                        onChange={(event) => setNewTopicName(event.target.value)}
+                        placeholder="e.g., Organic reactions"
+                        disabled={!selectedSubject}
+                      />
+                      <Button type="button" variant="outline" onClick={addTopic} disabled={!selectedSubject}>
+                        Add
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -460,7 +752,7 @@ export default function HomePage() {
                       </div>
                     </CardContent>
                   </Card>
-                ) : !activeLesson ? (
+                ) : !selectedTopic || !selectedTopicSubject ? (
                   <Card>
                     <CardHeader>
                       <CardTitle>Pick a topic</CardTitle>
@@ -471,12 +763,12 @@ export default function HomePage() {
                   <Card>
                     <CardHeader>
                       <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle className="text-2xl">{selectedTopic}</CardTitle>
+                        <CardTitle className="text-2xl">{styleLabel ?? "Learning Style"}</CardTitle>
                         <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                          {styleLabel}
+                          {selectedTopic}
                         </span>
                       </div>
-                      <CardDescription>{activeLesson.overview}</CardDescription>
+                      <CardDescription>{activeLesson?.overview ?? "Use this section to study and save your notes."}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="flex justify-end">
@@ -484,8 +776,15 @@ export default function HomePage() {
                           Save Output to My Notes
                         </Button>
                       </div>
+                      {saveMessage && <p className="text-sm text-muted-foreground">{saveMessage}</p>}
 
-                      {selectedStyle === "visual" && "visualAid" in activeLesson && (
+                      {!activeLesson && (
+                        <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+                          No built-in lesson found for this subject/topic yet. Write your own learning-style notes below and save them to My Notes.
+                        </div>
+                      )}
+
+                      {selectedStyle === "visual" && (
                         <div className="space-y-4">
                           <form onSubmit={handleVisualSearch} className="mx-auto flex w-full max-w-xl flex-col gap-2">
                             <div className="flex flex-col gap-2 sm:flex-row">
@@ -503,15 +802,21 @@ export default function HomePage() {
                             {visualError && <p className="text-sm text-destructive">{visualError}</p>}
                           </form>
 
-                          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                            {activeLesson.keyPoints.map((point) => (
-                              <li key={point}>{point}</li>
-                            ))}
-                          </ul>
+                          {activeLesson && "keyPoints" in activeLesson ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                              {activeLesson.keyPoints.map((point) => (
+                                <li key={point}>{point}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No built-in visual key points for this topic yet. Use the search bar above to find videos.
+                            </p>
+                          )}
                         </div>
                       )}
 
-                      {selectedStyle === "step-by-step" && "steps" in activeLesson && (
+                      {selectedStyle === "step-by-step" && (
                         <div className="space-y-4">
                           <div className="rounded-md border border-border/70 p-4">
                             <p className="mb-3 text-sm font-medium">Add media to get started</p>
@@ -526,7 +831,7 @@ export default function HomePage() {
                           </div>
 
                           <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
-                            {activeLesson.steps.map((step, stepIndex) => (
+                            {stepOptions.map((step, stepIndex) => (
                               <li key={step}>
                                 <p className="font-medium text-foreground">{step}</p>
                                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -554,7 +859,7 @@ export default function HomePage() {
                                           }
                                           className="mb-2 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                         >
-                                          {activeLesson.steps.map((_, index) => (
+                                          {stepOptions.map((_, index) => (
                                             <option key={index} value={index}>
                                               Step {index + 1}
                                             </option>
@@ -621,7 +926,7 @@ export default function HomePage() {
                         </div>
                       )}
 
-                      {selectedStyle === "summary" && "bulletPoints" in activeLesson && (
+                      {selectedStyle === "summary" && (
                         <div className="space-y-4">
                           <form onSubmit={handleSummarySearch} className="mx-auto flex w-full max-w-xl flex-col gap-2">
                             <div className="flex flex-col gap-2 sm:flex-row">
@@ -639,55 +944,161 @@ export default function HomePage() {
                             {summaryError && <p className="text-sm text-destructive">{summaryError}</p>}
                           </form>
 
-                          <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
-                            {activeLesson.bulletPoints.map((point) => (
-                              <li key={point}>{point}</li>
-                            ))}
-                          </ul>
+                          {activeLesson && "bulletPoints" in activeLesson ? (
+                            <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+                              {activeLesson.bulletPoints.map((point) => (
+                                <li key={point}>{point}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No built-in summary points for this topic yet. Use Gemini search or write your own notes below.
+                            </p>
+                          )}
                         </div>
                       )}
 
-                      {selectedStyle === "practice" && "questions" in activeLesson && (
+                      {selectedStyle === "practice" && (
                         <div className="space-y-4">
-                          {activeLesson.questions.map((question, index) => {
-                            const status = practiceResults[index] ?? null;
-                            return (
-                              <div key={question.prompt} className="rounded-md border border-border/70 p-4">
-                                <p className="mb-2 text-sm font-medium">
-                                  {index + 1}. {question.prompt}
-                                </p>
-                                <div className="flex flex-col gap-2 sm:flex-row">
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <Button
+                              type="button"
+                              variant={practiceSource === "built-in" ? "default" : "outline"}
+                              onClick={() => {
+                                setPracticeSource("built-in");
+                                setPracticeAnswers({});
+                                setPracticeResults({});
+                              }}
+                            >
+                              Built-in Problems
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={practiceSource === "gemini" ? "default" : "outline"}
+                              onClick={() => {
+                                setPracticeSource("gemini");
+                                setPracticeAnswers({});
+                                setPracticeResults({});
+                              }}
+                            >
+                              Generate with Gemini
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={practiceSource === "custom" ? "default" : "outline"}
+                              onClick={() => {
+                                setPracticeSource("custom");
+                                setPracticeAnswers({});
+                                setPracticeResults({});
+                              }}
+                            >
+                              Write Your Own
+                            </Button>
+                          </div>
+
+                          {practiceSource === "gemini" && (
+                            <form onSubmit={openGeminiPracticeGenerator} className="space-y-2 rounded-md border border-border/70 p-4">
+                              <p className="text-sm font-medium">Open Gemini to generate practice problems</p>
+                              <Input
+                                value={geminiPracticePrompt}
+                                onChange={(event) => setGeminiPracticePrompt(event.target.value)}
+                                placeholder="Optional prompt (or leave blank to use selected subject/topic)"
+                              />
+                              <Button type="submit">Open Gemini</Button>
+                              {geminiPracticeError && <p className="text-sm text-destructive">{geminiPracticeError}</p>}
+                            </form>
+                          )}
+
+                          {practiceSource === "custom" && (
+                            <div className="space-y-3 rounded-md border border-border/70 p-4">
+                              <p className="text-sm font-medium">Create your own practice problems</p>
+                              {customPracticeQuestions.map((question, index) => (
+                                <div key={index} className="space-y-2 rounded-md border border-border/60 p-3">
                                   <Input
-                                    value={practiceAnswers[index] ?? ""}
+                                    value={question.prompt}
                                     onChange={(event) =>
-                                      setPracticeAnswers((prev) => ({
-                                        ...prev,
-                                        [index]: event.target.value,
-                                      }))
+                                      updateCustomPracticeQuestion(index, "prompt", event.target.value)
                                     }
-                                    placeholder="Type your answer"
+                                    placeholder={`Question ${index + 1}`}
                                   />
-                                  <Button type="button" onClick={() => checkPracticeAnswer(index, question.answer)}>
-                                    Check
+                                  <Input
+                                    value={question.answer}
+                                    onChange={(event) =>
+                                      updateCustomPracticeQuestion(index, "answer", event.target.value)
+                                    }
+                                    placeholder="Expected answer"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => removeCustomPracticeQuestion(index)}
+                                  >
+                                    Remove Question
                                   </Button>
                                 </div>
-                                {status === "correct" && (
-                                  <p className="mt-2 inline-flex items-center gap-1 text-sm text-emerald-600">
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    Correct
+                              ))}
+                              <Button type="button" variant="outline" onClick={addCustomPracticeQuestion}>
+                                Add Another Question
+                              </Button>
+                            </div>
+                          )}
+
+                          {practiceSource !== "gemini" &&
+                            activePracticeQuestions.map((question, index) => {
+                              const status = practiceResults[index] ?? null;
+                              return (
+                                <div key={`${question.prompt}-${index}`} className="rounded-md border border-border/70 p-4">
+                                  <p className="mb-2 text-sm font-medium">
+                                    {index + 1}. {question.prompt}
                                   </p>
-                                )}
-                                {status === "incorrect" && (
-                                  <p className="mt-2 inline-flex items-center gap-1 text-sm text-destructive">
-                                    <XCircle className="h-4 w-4" />
-                                    Try again (expected: {question.answer})
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  <div className="flex flex-col gap-2 sm:flex-row">
+                                    <Input
+                                      value={practiceAnswers[index] ?? ""}
+                                      onChange={(event) =>
+                                        setPracticeAnswers((prev) => ({
+                                          ...prev,
+                                          [index]: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="Type your answer"
+                                    />
+                                    <Button type="button" onClick={() => checkPracticeAnswer(index, question.answer)}>
+                                      Check
+                                    </Button>
+                                  </div>
+                                  {status === "correct" && (
+                                    <p className="mt-2 inline-flex items-center gap-1 text-sm text-emerald-600">
+                                      <CheckCircle2 className="h-4 w-4" />
+                                      Correct
+                                    </p>
+                                  )}
+                                  {status === "incorrect" && (
+                                    <p className="mt-2 inline-flex items-center gap-1 text-sm text-destructive">
+                                      <XCircle className="h-4 w-4" />
+                                      Try again (expected: {question.answer})
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                          {practiceSource !== "gemini" && activePracticeQuestions.length === 0 && (
+                            <p className="text-sm text-muted-foreground">
+                              No practice questions available. Choose another source or add your own questions.
+                            </p>
+                          )}
                         </div>
                       )}
+
+                      <div className="space-y-2 border-t border-border/60 pt-3">
+                        <p className="text-sm font-medium">Learning-Style Notes</p>
+                        <Textarea
+                          value={styleNoteDraft}
+                          onChange={(event) => setStyleNoteDraft(event.target.value)}
+                          placeholder="Write your own notes for this style, subject, and topic..."
+                          rows={5}
+                        />
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -700,6 +1111,24 @@ export default function HomePage() {
                     <CardDescription>Saved outputs from Visual, Step by Step, Practice, and Summary.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <div className="space-y-2 rounded-md border border-border/70 p-3">
+                      <p className="text-sm font-medium">Add a Note Manually</p>
+                      <Input
+                        value={manualNoteTitle}
+                        onChange={(event) => setManualNoteTitle(event.target.value)}
+                        placeholder="Note title"
+                      />
+                      <Textarea
+                        value={manualNoteContent}
+                        onChange={(event) => setManualNoteContent(event.target.value)}
+                        placeholder="Type note details here..."
+                        rows={4}
+                      />
+                      <Button type="button" onClick={addManualNote}>
+                        Add Note
+                      </Button>
+                    </div>
+
                     {myNotes.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         No saved notes yet. Save any output from the Lesson tab.
@@ -714,13 +1143,75 @@ export default function HomePage() {
                                 {note.subject} • {note.topic} • {formatSavedDate(note.createdAt)}
                               </p>
                             </div>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => removeMyNote(note.id)}>
-                              Remove
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setOpenNoteId((prev) => (prev === note.id ? null : note.id))}
+                              >
+                                {openNoteId === note.id ? "Close" : "Open"}
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" onClick={() => removeMyNote(note.id)}>
+                                Remove
+                              </Button>
+                            </div>
                           </div>
-                          <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
-                            {note.content}
-                          </pre>
+
+                          {openNoteId === note.id && (
+                            <div className="space-y-2">
+                              {editingNoteId === note.id ? (
+                                <>
+                                  <Input
+                                    value={noteEditTitle}
+                                    onChange={(event) => setNoteEditTitle(event.target.value)}
+                                    placeholder="Edit title"
+                                  />
+                                  <Textarea
+                                    value={noteEditContent}
+                                    onChange={(event) => setNoteEditContent(event.target.value)}
+                                    rows={8}
+                                    placeholder="Edit note content"
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button type="button" onClick={saveEditedNote}>
+                                      Save Changes
+                                    </Button>
+                                    <Button type="button" variant="outline" onClick={cancelEditingNote}>
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
+                                    {note.content}
+                                  </pre>
+                                  {note.links && note.links.length > 0 && (
+                                    <div className="rounded bg-muted/30 p-2">
+                                      <p className="mb-1 text-xs font-medium text-muted-foreground">Saved Links</p>
+                                      <div className="space-y-1">
+                                        {note.links.map((link) => (
+                                          <a
+                                            key={link}
+                                            href={link}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block break-all text-xs text-primary underline"
+                                          >
+                                            {link}
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <Button type="button" variant="outline" size="sm" onClick={() => startEditingNote(note)}>
+                                    Edit
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))
                     )}
