@@ -27,11 +27,7 @@ export default function NewSessionPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    if (!user) {
-      setError("You must be logged in to create a session");
-      setIsLoading(false);
-      return;
-    }
+    const userId = user?.id ?? "guest";
 
     const { data, error: insertError } = await supabase
       .from("study_sessions")
@@ -39,7 +35,7 @@ export default function NewSessionPage() {
         title,
         subject: subject || null,
         description: description || null,
-        user_id: user.id,
+        user_id: userId,
       })
       .select()
       .single();

@@ -16,7 +16,7 @@ interface SummaryContent {
 }
 
 export function SummaryViewer({ content }: { content: Record<string, unknown> }) {
-  const { title, overview, keyPoints, details } = content as SummaryContent;
+  const { title, overview, keyPoints, details } = content as unknown as SummaryContent;
 
   return (
     <div className="max-w-3xl mx-auto">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -21,13 +22,29 @@ interface DashboardNavProps {
 
 export function DashboardNav({ user }: DashboardNavProps) {
   const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const isGuest = Boolean(user?.is_anonymous);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function handleSignOut() {
-    if (!user) return;
+    if (!user || isSigningOut) return;
+
+    setIsSigningOut(true);
     const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/");
+
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      setIsSigningOut(false);
+      return;
+    }
+
     router.refresh();
+    window.location.href = isGuest ? "/" : "/auth/login";
   }
 
   const displayName = user?.is_anonymous
@@ -44,6 +61,8 @@ export function DashboardNav({ user }: DashboardNavProps) {
         </div>
 
         <div className="flex items-center gap-4">
+
+
           <Link href="/dashboard/new">
             <Button className="gap-2">
               <Plus className="w-4 h-4" />
@@ -55,17 +74,25 @@ export function DashboardNav({ user }: DashboardNavProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="gap-2">
                 <User className="w-4 h-4" />
-                {displayName}
+                {mounted ? displayName : "Account"}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled className="text-muted-foreground">
-                {user?.email || "Anonymous session"}
+                {mounted ? user?.email || "Anonymous session" : "Loading account..."}
               </DropdownMenuItem>
+
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="text-destructive" disabled={!user}>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleSignOut();
+                }}
+                className="text-destructive"
+                disabled={!user || isSigningOut}
+              >
                 <LogOut className="w-4 h-4 mr-2" />
-                Sign out
+                {isSigningOut ? "Signing out..." : "Sign out"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

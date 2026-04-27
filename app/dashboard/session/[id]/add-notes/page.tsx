@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, use } from "react";
+import { useState, useCallback, use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -10,7 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, FileText, Upload, Loader2, X, CheckCircle } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ArrowLeft, FileText, Upload, Loader2, X, CheckCircle, Clock, StickyNote } from "lucide-react";
+
+type NoteEntry = {
+  id: string;
+  title: string;
+  file_type: string;
+  created_at: string;
+};
 
 const textLikeExtensions = [".txt", ".md", ".csv", ".json"];
 const documentExtensions = [".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".rtf"];
@@ -60,7 +68,24 @@ export default function AddNotesPage({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [notes, setNotes] = useState<NoteEntry[]>([]);
+  const [notesLoading, setNotesLoading] = useState(true);
   const router = useRouter();
+
+  const fetchNotes = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("notes")
+      .select("id, title, file_type, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false });
+    setNotes((data as NoteEntry[]) ?? []);
+    setNotesLoading(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -88,12 +113,7 @@ export default function AddNotesPage({
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
-    if (!user) {
-      setError("You must be logged in");
-      setIsLoading(false);
-      return;
-    }
+    const userId = user?.id ?? "guest";
 
     try {
       if (activeTab === "text") {
@@ -103,7 +123,7 @@ export default function AddNotesPage({
 
         const { error: insertError } = await supabase.from("notes").insert({
           session_id: sessionId,
-          user_id: user.id,
+          user_id: userId,
           title: title.trim(),
           content: content.trim(),
           file_type: "text",
@@ -152,7 +172,7 @@ export default function AddNotesPage({
 
           const { error: insertError } = await supabase.from("notes").insert({
             session_id: sessionId,
-            user_id: user.id,
+            user_id: userId,
             title: noteTitle,
             content: fileContent,
             file_type: fileType,
@@ -163,10 +183,15 @@ export default function AddNotesPage({
       }
 
       setSuccess(true);
+      setTitle("");
+      setContent("");
+      setFiles([]);
+      setUploadTitle("");
+      await fetchNotes();
       setTimeout(() => {
-        router.push(`/dashboard/session/${sessionId}`);
-        router.refresh();
-      }, 1000);
+        setSuccess(false);
+      }, 2000);
+      setIsLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);
@@ -181,8 +206,8 @@ export default function AddNotesPage({
             <div className="w-16 h-16 rounded-2xl bg-green-100 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">Notes Added Successfully!</h3>
-            <p className="text-muted-foreground">Redirecting back to your session...</p>
+            <h3 className="text-lg font-semibold mb-2">Notes Added!</h3>
+            <p className="text-muted-foreground">Your notes were saved.</p>
           </CardContent>
         </Card>
       </div>
@@ -190,7 +215,7 @@ export default function AddNotesPage({
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="mx-auto w-full max-w-5xl">
       <Link
         href={`/dashboard/session/${sessionId}`}
         className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
@@ -199,14 +224,16 @@ export default function AddNotesPage({
         Back to Session
       </Link>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Add Notes</CardTitle>
-          <CardDescription>
-            Add your study materials by pasting text or uploading files
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+        {/* ── Main form ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">Add Media, Files, and Notes</CardTitle>
+            <CardDescription>
+              Add your study materials by pasting text or uploading files
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
@@ -339,7 +366,67 @@ export default function AddNotesPage({
             </div>
           </form>
         </CardContent>
-      </Card>
+        </Card>
+
+        {/* ── Sidebar: notes already added ── */}
+        <Card className="h-fit lg:sticky lg:top-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <StickyNote className="w-4 h-4 text-primary" />
+              Notes Added
+              {notes.length > 0 && (
+                <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                  {notes.length}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {notesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : notes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No notes yet. Add your first note using the form.
+              </p>
+            ) : (
+              <ScrollArea className="max-h-[60vh]">
+                <ul className="space-y-2 pr-2">
+                  {notes.map((note) => (
+                    <li key={note.id} className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                      <div className="flex items-start gap-2">
+                        <FileText className="mt-0.5 w-4 h-4 shrink-0 text-primary" />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium leading-tight">{note.title}</p>
+                          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="w-3 h-3" />
+                            <span>
+                              {new Date(note.created_at).toLocaleString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </ScrollArea>
+            )}
+            {notes.length > 0 && (
+              <div className="mt-4 border-t border-border/50 pt-3">
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href={`/dashboard/session/${sessionId}`}>View All Notes</Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

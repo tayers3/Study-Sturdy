@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       prompt: `A student shared this learning preference description:\n\n"${parsed.data.description}"\n\nBased on that description, pick the single best study format from this list: slideshow, audio, flashcards, mindmap, quiz, summary.\n\nReturn:\n1) recommendedFormat: one of the allowed values\n2) reason: a short explanation (2-4 sentences)\n3) studyPlan: 3-5 actionable tips tied to the recommended format\n4) aiFeedback: encouraging coaching feedback tailored to their habits and challenges`,
     });
 
-    return Response.json(result.object);
+    return Response.json(result.output);
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Failed to generate feedback" },

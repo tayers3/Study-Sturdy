@@ -1,10 +1,23 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Space_Grotesk, JetBrains_Mono, Special_Elite } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-space-grotesk',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains-mono',
+});
+
+const specialElite = Special_Elite({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-special-elite',
+});
 
 export const metadata: Metadata = {
   title: 'Study Sturdy - Transform Your Notes Into Any Learning Style',
@@ -36,7 +49,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-background">
-      <body className="font-sans antialiased">
+      <body className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} ${specialElite.variable} font-sans antialiased`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

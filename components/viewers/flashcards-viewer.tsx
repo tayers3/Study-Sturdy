@@ -15,7 +15,7 @@ interface FlashcardsContent {
 }
 
 export function FlashcardsViewer({ content }: { content: Record<string, unknown> }) {
-  const { cards: originalCards } = content as FlashcardsContent;
+  const { cards: originalCards } = content as unknown as FlashcardsContent;
   const [cards, setCards] = useState(originalCards);
   const [currentCard, setCurrentCard] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);

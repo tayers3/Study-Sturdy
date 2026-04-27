@@ -41,13 +41,13 @@ export async function POST(request: Request) {
     }
 
     try {
-      const apiKey = process.env.GOOGLE_API_KEY;
+      const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        throw new Error("GOOGLE_API_KEY environment variable not set");
+        throw new Error("GEMINI_API_KEY environment variable not set");
       }
 
       const client = new GoogleGenerativeAI(apiKey);
-      const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const result = await model.generateContent({
         contents: [

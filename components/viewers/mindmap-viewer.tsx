@@ -25,7 +25,7 @@ const branchColors = [
 ];
 
 export function MindmapViewer({ content }: { content: Record<string, unknown> }) {
-  const { centralTopic, branches } = content as MindmapContent;
+  const { centralTopic, branches } = content as unknown as MindmapContent;
   const [expandedBranches, setExpandedBranches] = useState<Set<number>>(
     new Set(branches.map((_, i) => i))
   );

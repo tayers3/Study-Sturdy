@@ -17,7 +17,7 @@ interface AudioContent {
 }
 
 export function AudioViewer({ content }: { content: Record<string, unknown> }) {
-  const { title, script, sections } = content as AudioContent;
+  const { title, script, sections } = content as unknown as AudioContent;
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentSection, setCurrentSection] = useState(0);

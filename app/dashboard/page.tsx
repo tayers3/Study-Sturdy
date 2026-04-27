@@ -6,6 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus, BookOpen, Clock, Layers, Headphones, Brain, HelpCircle, FileText } from "lucide-react";
 import { formatDistanceToNow } from "@/lib/utils";
 
+type SessionRow = {
+  id: string;
+  title: string;
+  subject: string | null;
+  description: string | null;
+  updated_at: string;
+};
+
 const modeIcons: Record<string, typeof Layers> = {
   slideshow: Layers,
   audio: Headphones,
@@ -62,7 +70,7 @@ export default async function DashboardPage() {
         </Card>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sessions.map((session) => (
+          {(sessions as SessionRow[]).map((session) => (
             <Link key={session.id} href={`/dashboard/session/${session.id}`}>
               <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer group">
                 <CardHeader>

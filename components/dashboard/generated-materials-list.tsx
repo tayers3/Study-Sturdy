@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { formatStableDate } from "@/lib/utils";
 import { Layers, Headphones, BookOpen, Brain, HelpCircle, FileText, Play } from "lucide-react";
 
 interface Material {
@@ -47,7 +48,7 @@ export function GeneratedMaterialsList({ materials, sessionId }: GeneratedMateri
             <div className="flex-1 min-w-0">
               <h4 className="font-medium">{config.label}</h4>
               <p className="text-xs text-muted-foreground">
-                Generated {new Date(material.created_at).toLocaleDateString()}
+                Generated {formatStableDate(new Date(material.created_at))}
               </p>
             </div>
             <Link href={`/dashboard/session/${sessionId}/view/${material.type}/${material.id}`}>

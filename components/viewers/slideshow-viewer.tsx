@@ -17,7 +17,7 @@ interface SlideshowContent {
 
 export function SlideshowViewer({ content }: { content: Record<string, unknown> }) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const { slides } = content as SlideshowContent;
+  const { slides } = content as unknown as SlideshowContent;
 
   const nextSlide = () => {
     if (currentSlide < slides.length - 1) {

@@ -3,6 +3,11 @@ import { openai } from "@ai-sdk/openai";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
+type NoteRow = {
+  title: string;
+  content: string;
+};
+
 const slideshowSchema = z.object({
   slides: z.array(
     z.object({
@@ -163,7 +168,7 @@ export async function POST(request: Request) {
   }
 
   // Combine all notes into a single text
-  const combinedNotes = notes
+  const combinedNotes = (notes as NoteRow[])
     .map((note) => `## ${note.title}\n\n${note.content}`)
     .join("\n\n---\n\n");
 
@@ -175,6 +180,7 @@ export async function POST(request: Request) {
       }),
       prompt: `${prompts[type]}\n\nStudy Notes:\n\n${combinedNotes}`,
     });
+    const generatedContent = result.output as Record<string, unknown>;
 
     // Save the generated material to the database
     const { data: material, error: insertError } = await supabase
@@ -183,7 +189,7 @@ export async function POST(request: Request) {
         session_id: sessionId,
         user_id: user.id,
         type,
-        content: result.object,
+        content: generatedContent,
       })
       .select()
       .single();
@@ -192,7 +198,7 @@ export async function POST(request: Request) {
       return Response.json({ error: insertError.message }, { status: 500 });
     }
 
-    return Response.json({ id: material.id, content: result.object });
+    return Response.json({ id: material.id, content: generatedContent });
   } catch (error) {
     console.error("Generation error:", error);
     return Response.json(
