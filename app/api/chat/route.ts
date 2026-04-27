@@ -1,5 +1,4 @@
-import { generateText, Output } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -84,21 +83,47 @@ export async function POST(request: Request) {
     let assistantResponse;
 
     try {
-      const result = await generateText({
-        model: openai("gpt-4o-mini"),
-        output: Output.object({ schema: responseSchema }),
-        prompt: `You are Study Sturdy AI, a concise and practical student tutor.
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        throw new Error("GOOGLE_API_KEY environment variable not set");
+      }
+
+      const client = new GoogleGenerativeAI(apiKey);
+      const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+      const result = await model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are Study Sturdy AI, a concise and practical student tutor.
 
 Student question:
 ${parsed.data.query}
 
-Return:
+Return a JSON object with:
 1) answer: a clear explanation in simple language
-2) steps: 3-7 numbered, actionable steps to solve this specific problem
-3) quickTips: 2-4 practical next steps the student can take right now`,
+2) steps: array of 3-7 numbered, actionable steps to solve this specific problem
+3) quickTips: array of 2-4 practical next steps the student can take right now
+
+Return ONLY valid JSON, no markdown or extra text.`,
+              },
+            ],
+          },
+        ],
       });
 
-      assistantResponse = result.object;
+      const textContent = result.response.text();
+      
+      // Parse JSON from response
+      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Could not parse JSON from Gemini response");
+      }
+
+      const parsed_response = JSON.parse(jsonMatch[0]);
+      assistantResponse = responseSchema.parse(parsed_response);
     } catch {
       assistantResponse = fallbackResponse(parsed.data.query);
     }
